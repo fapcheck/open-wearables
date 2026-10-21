@@ -358,6 +358,11 @@ class EventRecordService(
                 return current
 
         created_record = self.crud.create_and_flush(db_session, record)
+        if created_record.id != record.id:
+            # The data source holds this exact window under another ID: the same session, re-issued.
+            created_record.external_id, created_record.type = record.external_id, record.type
+            self._refresh_sleep(db_session, user_id, created_record, record, detail)
+            return created_record
         new_detail = detail.model_copy(update={"record_id": created_record.id})
         self.event_record_detail_repo.create_and_flush(db_session, new_detail, detail_type=EventCategory.SLEEP)
         db_session.commit()
@@ -373,7 +378,7 @@ class EventRecordService(
         detail: EventRecordDetailCreate,
     ) -> None:
         """Overwrite a stored session with a fresh copy of it, then commit."""
-        old_start, old_zone = stored.start_datetime, stored.zone_offset
+        old_start, old_end, old_zone = stored.start_datetime, stored.end_datetime, stored.zone_offset
         for field in ("start_datetime", "end_datetime", "zone_offset"):
             new_val = getattr(record, field, None)
             if new_val is not None:
@@ -391,6 +396,7 @@ class EventRecordService(
             user_id,
             {
                 self._local_sleep_date(old_start, old_zone),
+                self._local_sleep_date(old_end, old_zone),  # its old wake date, if it moved nights
                 self._local_sleep_date(stored.start_datetime, stored.zone_offset),
             },
         )

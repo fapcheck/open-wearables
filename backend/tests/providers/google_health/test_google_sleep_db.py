@@ -114,6 +114,25 @@ def test_copies_under_other_data_sources_collapse_to_one(db: Session) -> None:
     assert db.query(EventRecord.type).scalar() == "sleep_session"
 
 
+def test_a_session_reissued_under_a_new_name_takes_the_new_name(db: Session) -> None:
+    user = UserFactory()
+    source = DataSourceFactory(
+        user=user, provider=ProviderName.GOOGLE_HEALTH, source=GOOGLE_HEALTH_API_SOURCE, device_model="Fitbit Air"
+    )
+    EventRecordFactory(
+        data_source=source,
+        category=EventCategory.SLEEP,
+        external_id=_name("old"),
+        start_datetime=BEDTIME,
+        end_datetime=BEDTIME + timedelta(hours=7),
+    )
+    db.commit()
+
+    _sync(db, user.id, [_session("new", BEDTIME)])
+
+    assert _stored(db) == [("new", 420)]
+
+
 def test_a_nap_next_to_a_night_survives_a_resync(db: Session) -> None:
     # Within sleep_end_gap_minutes: create_or_merge_sleep would merge them, then shrink the
     # merged record to one of them when the next sync fetched both again.
