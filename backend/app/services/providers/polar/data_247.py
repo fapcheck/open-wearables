@@ -723,6 +723,28 @@ class Polar247Data(Base247DataTemplate):
         return scores
 
     # -------------------------------------------------------------------------
+    # Elixir biosensing: GET /v3/users/biosensing/*
+    # -------------------------------------------------------------------------
+
+    def _get_biosensing(
+        self,
+        db: DbSession,
+        user_id: UUID,
+        endpoint: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        """Fetch a biosensing list endpoint; Polar enforces a max 28-day window per request."""
+        results: list[dict[str, Any]] = []
+        chunk_start = start_time
+        while chunk_start < end_time:
+            chunk_end = min(chunk_start + timedelta(days=27), end_time)
+            params = {"from": chunk_start.date().isoformat(), "to": chunk_end.date().isoformat()}
+            results.extend(self._make_api_request(db, user_id, endpoint, params=params) or [])
+            chunk_start = chunk_end + timedelta(days=1)
+        return results
+
+    # -------------------------------------------------------------------------
     # Elixir — Body Temperature: GET /v3/users/biosensing/bodytemperature
     # -------------------------------------------------------------------------
 
@@ -733,9 +755,7 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/biosensing/bodytemperature", params=params)
-        return response or []
+        return self._get_biosensing(db, user_id, "/v3/users/biosensing/bodytemperature", start_time, end_time)
 
     def normalize_body_temperature(
         self,
@@ -778,9 +798,7 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/biosensing/skintemperature", params=params)
-        return response or []
+        return self._get_biosensing(db, user_id, "/v3/users/biosensing/skintemperature", start_time, end_time)
 
     def normalize_sleep_skin_temperature(
         self,
@@ -832,9 +850,7 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/biosensing/spo2", params=params)
-        return response or []
+        return self._get_biosensing(db, user_id, "/v3/users/biosensing/spo2", start_time, end_time)
 
     def normalize_spo2(
         self,
@@ -885,9 +901,7 @@ class Polar247Data(Base247DataTemplate):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/biosensing/ecg", params=params)
-        return response or []
+        return self._get_biosensing(db, user_id, "/v3/users/biosensing/ecg", start_time, end_time)
 
     def normalize_wrist_ecg(
         self,

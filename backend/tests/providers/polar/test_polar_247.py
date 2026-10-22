@@ -686,6 +686,23 @@ class TestPolar247ElixirEndpoints:
         assert request.call_args.args[2] == endpoint
         assert request.call_args.kwargs["params"] == {"from": "2024-01-01", "to": "2024-01-28"}
 
+    def test_splits_windows_longer_than_28_days(self, data_247: Polar247Data) -> None:
+        responses = [[{"sleep_date": "2024-01-02"}], None, [{"sleep_date": "2024-02-28"}]]
+        with patch.object(data_247, "_make_api_request", side_effect=responses) as request:
+            raw = data_247.get_sleep_skin_temperature_data(
+                MagicMock(),
+                uuid4(),
+                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 3, 1, tzinfo=timezone.utc),
+            )
+
+        assert [c.kwargs["params"] for c in request.call_args_list] == [
+            {"from": "2024-01-01", "to": "2024-01-28"},
+            {"from": "2024-01-29", "to": "2024-02-25"},
+            {"from": "2024-02-26", "to": "2024-03-01"},
+        ]
+        assert raw == [{"sleep_date": "2024-01-02"}, {"sleep_date": "2024-02-28"}]
+
 
 class TestPolar247SleepSkinTemperature:
     def test_night_is_anchored_to_utc_midnight(self, data_247: Polar247Data) -> None:
