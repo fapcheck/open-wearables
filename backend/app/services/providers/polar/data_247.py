@@ -735,11 +735,14 @@ class Polar247Data(Base247DataTemplate):
         end_time: datetime,
     ) -> list[dict[str, Any]]:
         """Fetch a biosensing list endpoint; Polar enforces a max 28-day window per request."""
+        # Polar takes dates, both ends inclusive, so the chunks advance by date: advancing by
+        # datetime would skip the last day when the window ends earlier in the day than it starts.
         results: list[dict[str, Any]] = []
-        chunk_start = start_time
-        while chunk_start < end_time:
-            chunk_end = min(chunk_start + timedelta(days=27), end_time)
-            params = {"from": chunk_start.date().isoformat(), "to": chunk_end.date().isoformat()}
+        chunk_start = start_time.date()
+        last_day = end_time.date()
+        while chunk_start <= last_day:
+            chunk_end = min(chunk_start + timedelta(days=27), last_day)
+            params = {"from": chunk_start.isoformat(), "to": chunk_end.isoformat()}
             results.extend(self._make_api_request(db, user_id, endpoint, params=params) or [])
             chunk_start = chunk_end + timedelta(days=1)
         return results
