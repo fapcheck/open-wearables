@@ -723,7 +723,7 @@ class Polar247Data(Base247DataTemplate):
         return scores
 
     # -------------------------------------------------------------------------
-    # Elixir — Body Temperature: GET /v3/users/body-temperature
+    # Elixir — Body Temperature: GET /v3/users/biosensing/bodytemperature
     # -------------------------------------------------------------------------
 
     def get_body_temperature_data(
@@ -734,7 +734,7 @@ class Polar247Data(Base247DataTemplate):
         end_time: datetime,
     ) -> list[dict[str, Any]]:
         params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/body-temperature", params=params)
+        response = self._make_api_request(db, user_id, "/v3/users/biosensing/bodytemperature", params=params)
         return response or []
 
     def normalize_body_temperature(
@@ -768,7 +768,7 @@ class Polar247Data(Base247DataTemplate):
         return samples
 
     # -------------------------------------------------------------------------
-    # Elixir — Sleep Skin Temperature: GET /v3/users/sleep-skin-temperature
+    # Elixir — Sleep Skin Temperature: GET /v3/users/biosensing/skintemperature
     # -------------------------------------------------------------------------
 
     def get_sleep_skin_temperature_data(
@@ -779,7 +779,7 @@ class Polar247Data(Base247DataTemplate):
         end_time: datetime,
     ) -> list[dict[str, Any]]:
         params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/sleep-skin-temperature", params=params)
+        response = self._make_api_request(db, user_id, "/v3/users/biosensing/skintemperature", params=params)
         return response or []
 
     def normalize_sleep_skin_temperature(
@@ -793,7 +793,8 @@ class Polar247Data(Base247DataTemplate):
                 continue
             if not parsed.sleep_date:
                 continue
-            recorded_at = datetime.fromisoformat(parsed.sleep_date)
+            # A bare date, anchored to UTC midnight like the Nightly Recharge night.
+            recorded_at = datetime.fromisoformat(parsed.sleep_date).replace(tzinfo=timezone.utc)
             if parsed.sleep_time_skin_temperature_celsius is not None:
                 samples.append(
                     TimeSeriesSampleCreate(
@@ -821,7 +822,7 @@ class Polar247Data(Base247DataTemplate):
         return samples
 
     # -------------------------------------------------------------------------
-    # Elixir — SpO2: GET /v3/users/spo2
+    # Elixir — SpO2: GET /v3/users/biosensing/spo2
     # -------------------------------------------------------------------------
 
     def get_spo2_data(
@@ -832,7 +833,7 @@ class Polar247Data(Base247DataTemplate):
         end_time: datetime,
     ) -> list[dict[str, Any]]:
         params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/spo2", params=params)
+        response = self._make_api_request(db, user_id, "/v3/users/biosensing/spo2", params=params)
         return response or []
 
     def normalize_spo2(
@@ -874,7 +875,7 @@ class Polar247Data(Base247DataTemplate):
         return samples
 
     # -------------------------------------------------------------------------
-    # Elixir — Wrist ECG: GET /v3/users/wrist-ecg
+    # Elixir — Wrist ECG: GET /v3/users/biosensing/ecg
     # -------------------------------------------------------------------------
 
     def get_wrist_ecg_data(
@@ -885,7 +886,7 @@ class Polar247Data(Base247DataTemplate):
         end_time: datetime,
     ) -> list[dict[str, Any]]:
         params = {"from": start_time.date().isoformat(), "to": end_time.date().isoformat()}
-        response = self._make_api_request(db, user_id, "/v3/users/wrist-ecg", params=params)
+        response = self._make_api_request(db, user_id, "/v3/users/biosensing/ecg", params=params)
         return response or []
 
     def normalize_wrist_ecg(
