@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 import sentry_sdk
 from pydantic import ValidationError
+from redis.exceptions import LockError
 
 from app.constants.entry_source import get_unified_sdk_entry_source
 from app.constants.series_types.sdk import (
@@ -48,13 +49,10 @@ from app.services.event_record_service import event_record_service
 from app.services.timeseries_service import timeseries_service
 from app.utils.sentry_helpers import log_and_capture_error
 from app.utils.structured_logging import log_structured
+from app.utils.units import BloodGlucoseUnit, EnergyUnit, UnitConverter, VolumeUnit
 
 from .device_resolution import extract_device_ids, extract_device_info, extract_device_type
 from .sleep_service import handle_sleep_data
-
-# Health Connect's own mg/dL converter uses exactly 18.0, so values written to HC
-# in mg/dL round-trip with a ~0.1% offset under this factor.
-MMOL_L_TO_MG_DL = Decimal("18.0182")
 
 # Energy series stored in kcal.
 _KCAL_SERIES = frozenset({SeriesType.dietary_energy_consumed, SeriesType.dietary_energy_from_fat})
@@ -309,16 +307,16 @@ class ImportService:
 
             # Health Connect reports blood glucose in mmol/L; the series unit is mg/dL.
             if series_type == SeriesType.blood_glucose and unit.startswith("mmol"):
-                value = value * MMOL_L_TO_MG_DL
+                value = UnitConverter.blood_glucose(value, BloodGlucoseUnit.mmol_l, BloodGlucoseUnit.mg_dl)
 
             # Convert hydration units to mL
             if series_type == SeriesType.hydration and unit in ("l", "liter", "liters", "litre", "litres"):
-                value *= 1000
+                value = UnitConverter.volume(value, VolumeUnit.liter, VolumeUnit.ml)
 
             # Energy is stored in kcal. Case matters: "cal" is a small calorie (1/1000 kcal),
             # "Cal" is the food Calorie (= kcal).
             if series_type in _KCAL_SERIES and (rjson.unit or "").strip() == "cal":
-                value = value / 1000
+                value = UnitConverter.energy(value, EnergyUnit.cal, EnergyUnit.kcal)
 
             # Extract device info
             device_model, software_version, original_source_name = extract_device_info(rjson.source)
@@ -535,8 +533,25 @@ class ImportService:
 
         # Process sleep (count sleep segments from input)
         if request.data.sleep:
-            handle_sleep_data(db_session, request, user_id)
-            sleep_saved = len(request.data.sleep)
+            try:
+                handle_sleep_data(db_session, request, user_id)
+                sleep_saved = len(request.data.sleep)
+            except LockError as e:
+                # The rest of the batch is committed, so only its sleep is reported as dropped.
+                log_structured(
+                    self.log,
+                    "warning",
+                    "SDK sleep not saved: sleep processing lock unavailable",
+                    provider=f"{request.provider}",
+                    action="sdk_sleep_lock_unavailable",
+                    batch_id=batch_id,
+                    user_id=user_id,
+                    sleep_count=len(request.data.sleep),
+                )
+                dropped.extend(
+                    InvalidRecord(collection="sleep", index=i, loc="", msg=str(e), type="lock_unavailable")
+                    for i in range(len(request.data.sleep))
+                )
 
         return {
             "workouts_saved": workouts_saved,
@@ -620,7 +635,9 @@ class ImportService:
             )
 
             dropped = saved_counts.get("dropped") or []
-            if dropped:
+            # Lock drops are already logged by load_data and are not validation failures.
+            invalid = [d for d in dropped if d["type"] != "lock_unavailable"]
+            if invalid:
                 # Partial success: some records failed per-record validation. The good
                 # ones are already saved above; report the exact field errors to Sentry
                 # (PII-free: loc/msg/type) so we keep full visibility into what was lost.
@@ -632,15 +649,15 @@ class ImportService:
                             "batch_id": batch_id,
                             "user_id": user_id,
                             "provider": provider,
-                            "dropped_count": len(dropped),
-                            "errors": dropped[:20],
+                            "dropped_count": len(invalid),
+                            "errors": invalid[:20],
                         },
                     )
                     sentry_sdk.capture_message(f"{provider} SDK payload: dropped invalid records, kept the rest")
                 # Compose the full location (collection[index].field) so the log one-liner
                 # says which record failed, not just the field — the per-record `loc` is
                 # relative to a single record. The full breakdown is in the Sentry context.
-                first = dropped[0]
+                first = invalid[0]
                 first_loc = f"{first['collection']}[{first['index']}]"
                 if first.get("loc"):
                     first_loc += f".{first['loc']}"
@@ -652,7 +669,7 @@ class ImportService:
                     action=f"{provider}_sdk_records_dropped",
                     batch_id=batch_id,
                     user_id=user_id,
-                    dropped_count=len(dropped),
+                    dropped_count=len(invalid),
                     first_error_loc=first_loc,
                     first_error_msg=first["msg"],
                 )
